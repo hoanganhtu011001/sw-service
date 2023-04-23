@@ -13,15 +13,20 @@ import com.example.demo.common.tiktok.request.fulfillment.TiktokShipPackageReque
 import com.example.demo.common.tiktok.request.order.TiktokFilterOrderRequest;
 import com.example.demo.common.tiktok.request.order.TiktokOrderDetailsRequest;
 import com.example.demo.common.tiktok.request.product.TiktokProductsRequest;
+import com.example.demo.common.tiktok.request.product.UpdateProductPriceRequest;
+import com.example.demo.common.tiktok.request.product.UpdateProductQuantityRequest;
 import com.example.demo.common.tiktok.response.TiktokAccessTokenResponse;
 import com.example.demo.common.tiktok.response.TiktokAuthorizedShopResponse;
 import com.example.demo.common.tiktok.response.fulfillment.TiktokShipPackageReponse;
 import com.example.demo.common.tiktok.response.logistics.shippingdocument.TiktokShippingDocumentResponse;
 import com.example.demo.common.tiktok.response.logistics.shippinginfo.TiktokShippingInfoResponse;
+import com.example.demo.common.tiktok.response.logistics.warehouse.TiktokWarehousesResponse;
 import com.example.demo.common.tiktok.response.order.TiktokOrderDetailsResponse;
 import com.example.demo.common.tiktok.response.order.TiktokOrdersResponse;
 import com.example.demo.common.tiktok.response.product.TiktokProductDetailResponse;
 import com.example.demo.common.tiktok.response.product.TiktokProductsResponse;
+import com.example.demo.common.tiktok.response.product.UpdateProductPriceResponse;
+import com.example.demo.common.tiktok.response.product.UpdateProductQuantityResponse;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -166,6 +171,51 @@ public class TikTokApiService {
     public TiktokShippingInfoResponse getShippingInfo (String token, String shopId, String orderNumber) {
         try {
             var response = tiktokLogisticsFeign.getShippingInfo(TikTokAppConst.APP_KEY, token, shopId, orderNumber).getBody();
+            if (response != null) {
+                if (response.getMessage() != null) {
+                    log.error(response.getMessage());
+                }
+                return response;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public TiktokWarehousesResponse getWarehouseList (String token, String shopId) {
+        try {
+            var response = tiktokLogisticsFeign.getWarehouseList(TikTokAppConst.APP_KEY, token, shopId).getBody();
+            if (response != null) {
+                if (response.getMessage() != null) {
+                    log.error(response.getMessage());
+                }
+                return response;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public UpdateProductPriceResponse updatePrice (String token, String shopId, UpdateProductPriceRequest request) {
+        try {
+            var response = tiktokProductFeign.updatePrice(TikTokAppConst.APP_KEY, token, shopId, request).getBody();
+            if (response != null) {
+                if (response.getMessage() != null) {
+                    log.error(response.getMessage());
+                }
+                return response;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public UpdateProductQuantityResponse updateQty (String token, String shopId, UpdateProductQuantityRequest request) {
+        try {
+            var response = tiktokProductFeign.updateQuantity(TikTokAppConst.APP_KEY, token, shopId, request).getBody();
             if (response != null) {
                 if (response.getMessage() != null) {
                     log.error(response.getMessage());

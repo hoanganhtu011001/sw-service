@@ -1,6 +1,5 @@
 package com.example.demo;
 
-import com.example.demo.domain.ChannelProduct;
 import com.example.demo.repository.ChannelProductRepository;
 import com.example.demo.repository.ChannelVariantRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +10,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
+
+import java.util.Date;
 
 @SpringBootApplication
 @EnableFeignClients
@@ -31,5 +32,6 @@ public class DemoApplication implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
+        log.info("PROJECT START AT: {}", new Date());
     }
 }

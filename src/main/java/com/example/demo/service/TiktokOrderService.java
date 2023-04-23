@@ -34,8 +34,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -125,6 +124,7 @@ public class TiktokOrderService {
                     channelOrder.setTotalAmount(orderModel.getPaymentInfo().getTotalAmount());
                     channelOrder.setShippingCarrier(orderModel.getShippingProvider());
                     channelOrder.setPaymentMethod(orderModel.getPaymentMethod());
+                    channelOrder.setPaidTime(orderModel.getPaidTime());
                     channelOrder.setDateKey(Utils.getDateKey(channelOrder.getIssuedAt()));
                     channelOrderRepository.save(channelOrder);
                     crawlChannelOrderItem(orderModel, channelOrder.getId());
@@ -154,7 +154,7 @@ public class TiktokOrderService {
                 channelOrderItem.setPrice(lineItem.getSkuOriginalPrice());
                 channelOrderItem.setItemId(lineItem.getProductId());
                 channelOrderItem.setVariantId(lineItem.getSkuId());
-                channelOrderItem.setName(lineItem.getSkuName());
+                channelOrderItem.setName(lineItem.getProductName() + " - " +  lineItem.getSkuName());
                 try {
                     ChannelVariant channelVariant = channelVariantRepository.findByItemIdAndAndVariantId(
                             channelOrderItem.getItemId(),
@@ -358,9 +358,19 @@ public class TiktokOrderService {
             for (Connection connection : connections) {
                 connectionNames.append(connection.getName()).append(",");
             }
-            response.setData(Utils.getReportHtml(printData, connectionNames.toString(), String.valueOf(from), String.valueOf(to)));
+            response.setData(Utils.getReportHtml(printData, connectionNames.toString(), getTimeText(from), getTimeText(to)));
         }
         return response;
+    }
+
+    private String getTimeText (long time) {
+        Date date = new Date(time * 1000);
+        Calendar calendar = new GregorianCalendar();
+        calendar.setTime(date);
+        int year = calendar.get(Calendar.YEAR);
+        int month = calendar.get(Calendar.MONTH) + 1;
+        int day = calendar.get(Calendar.DAY_OF_MONTH);
+        return day + "/" + month + "/" + year;
     }
 
 }

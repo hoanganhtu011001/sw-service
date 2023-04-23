@@ -2,6 +2,7 @@ package com.example.demo.service.tiktokproduct;
 
 import com.example.demo.common.tiktok.model.product.TikTokProductModel;
 import com.example.demo.common.tiktok.model.product.TiktokSalesAttributes;
+import com.example.demo.common.tiktok.request.product.*;
 import com.example.demo.common.tiktok.response.product.TiktokProductsResponse;
 import com.example.demo.controller.response.BaseResponse;
 import com.example.demo.controller.response.ChannelProductResponse;
@@ -16,6 +17,7 @@ import com.example.demo.service.tiktok.TikTokApiService;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -24,6 +26,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -85,6 +88,38 @@ public class TikTokProductService {
         }
     }
 
+    public BaseResponse getMappingInfo (int id) {
+        var baseResponse = new BaseResponse();
+        var channelVariantOpt = channelVariantRepository.findById(id);
+        if (channelVariantOpt.isPresent()) {
+            var channelVariant = channelVariantOpt.get();
+            var connectionOpt = connectionRepository.findById(channelVariant.getConnectionId());
+            if (connectionOpt.isPresent()) {
+                var connection = connectionOpt.get();
+                var productDetail = tikTokApiService.getProductDetailTikTok(
+                        connection.getAccessToken(),
+                        connection.getShopId(),
+                        channelVariant.getItemId()
+                );
+                System.out.println(productDetail);
+                if (productDetail != null && productDetail.getData() != null) {
+                    var tiktokVariant = productDetail.getData().getSkus().stream()
+                            .filter(item -> item.getId().equalsIgnoreCase(channelVariant.getVariantId()))
+                            .findFirst()
+                            .orElse(null);
+                    assert tiktokVariant != null;
+                    System.out.println("set mapping info");
+                    channelVariant.setQuantity(tiktokVariant.getStockInfos().get(0).getAvailableStock());
+                    channelVariant.setPrice(new BigDecimal(tiktokVariant.getPrice().getOriginalPrice()));
+                }
+            }
+            var coreVar = variantRepository.findById(channelVariant.getMappingId());
+            coreVar.ifPresent(channelVariant::setVariant);
+            baseResponse.setData(channelVariant);
+        }
+        return baseResponse;
+    }
+
     public void crawlProductDetail(Connection connection, String itemId) {
         var productDetail = tikTokApiService.getProductDetailTikTok(
                 connection.getAccessToken(),
@@ -102,12 +137,12 @@ public class TikTokProductService {
             channelProduct.setTenantId(connection.getTenantId());
             channelProduct.setItemId(itemId);
             channelProduct.setName(product.getProductName());
-            channelProductRepository.save(channelProduct);
             try {
                 channelProduct.setImage(product.getImages().get(0).getUrlList().get(0));
             } catch (Exception e) {
                 log.error("crawlProductDetail | {}", e.toString());
             }
+            channelProductRepository.save(channelProduct);
             if (!product.getSkus().isEmpty()) {
                 ChannelProduct finalChannelProduct = channelProduct;
                 ChannelProduct finalChannelProduct1 = channelProduct;
@@ -154,7 +189,7 @@ public class TikTokProductService {
         try {
             List<ChannelProductResponse> channelProductResponses = new ArrayList<>();
             List<ChannelProduct> products;
-            Pageable pageable = PageRequest.of(page, 10);
+            Pageable pageable = PageRequest.of(page, 10, Sort.by("id").descending());
             int total = 0;
             if (mappingStatus == 1) {
                 products = channelProductRepository.findAllByConnectionIdInAndNameContains(connectionIds, query, pageable);
@@ -202,6 +237,61 @@ public class TikTokProductService {
         channelProductResponses.add(channelProductResponse);
     }
 
+    public BaseResponse multiMap (List<Integer> connectionIds) {
+        var response = new BaseResponse();
+        var connections = connectionRepository.findAllByIdIn(connectionIds);
+        try {
+            if (connections != null) {
+                CompletableFuture.allOf(
+                        connections.stream()
+                        .map(this::multiMapByConnectionFuture)
+                                .toArray(CompletableFuture[]::new)
+                ).get();
+            }
+        } catch (Exception e) {
+            response.setError(e.toString());
+            log.error(e.toString());
+        }
+        return response;
+    }
+
+    private CompletableFuture<Void> multiMapByConnectionFuture (Connection connection) {
+        return CompletableFuture.runAsync(() -> multiMapByConnection(connection));
+    }
+
+    private void multiMapByConnection (Connection connection) {
+           try {
+               var channelVariants = channelVariantRepository.findAllByConnectionId(connection.getId());
+               if (channelVariants != null) {
+                   CompletableFuture.allOf(
+                           channelVariants
+                                   .stream()
+                                   .map(this::multiMapByChannelVariantFuture)
+                                   .toArray(CompletableFuture[]::new)
+                   ).get();
+               }
+           } catch (Exception e) {
+               log.error("multiMapByConnection: {}", e.toString());
+           }
+    }
+
+    private CompletableFuture<Void> multiMapByChannelVariantFuture (ChannelVariant channelVariant) {
+        return CompletableFuture.runAsync(() -> multiMapByChannelVariant(channelVariant));
+    }
+
+    private void multiMapByChannelVariant (ChannelVariant channelVariant) {
+        try {
+            var variant = variantRepository.findAllBySku(channelVariant.getSku());
+            if (variant != null && variant.size() > 0) {
+                channelVariant.setMappingId(variant.get(0).getId());
+                channelVariantRepository.save(channelVariant);
+                processProductMapping(channelVariant.getItemId());
+            }
+        } catch (Exception e) {
+            log.error("multiMapByChannelVariant: {}", e.toString());
+        }
+    }
+
     public BaseResponse quickMapProduct (int tiktokVariantId) {
         var response = new BaseResponse();
         var tiktokVariantOptional = channelVariantRepository.findById(tiktokVariantId);
@@ -209,10 +299,10 @@ public class TikTokProductService {
             if (tiktokVariantOptional.get().getSku() == null) {
                 response.setError("Sản phẩm phải có sku mới có thể liên kết nhanh");
             } else {
-                var variant = variantRepository.findBySku(tiktokVariantOptional.get().getSku());
-                if (variant != null) {
+                var variant = variantRepository.findAllBySku(tiktokVariantOptional.get().getSku());
+                if (variant != null && variant.size() > 0) {
                     ChannelVariant tiktokVariant = tiktokVariantOptional.get();
-                    tiktokVariant.setMappingId(variant.getId());
+                    tiktokVariant.setMappingId(variant.get(0).getId());
                     channelVariantRepository.save(tiktokVariant);
                     processProductMapping(tiktokVariant.getItemId());
                 } else {
@@ -274,7 +364,7 @@ public class TikTokProductService {
         try {
             var channelVariantToCreate = channelVariantRepository.findById(id);
             if (channelVariantToCreate.isPresent()) {
-                var variantOld = variantRepository.findBySku(channelVariantToCreate.get().getSku());
+                var variantOld = variantRepository.findAllBySku(channelVariantToCreate.get().getSku());
                 if (variantOld != null) {
                     response.setError("SKU đã tồn tại");
                 }
@@ -342,6 +432,114 @@ public class TikTokProductService {
             e.printStackTrace();
         }
         return response;
+    }
+
+    public BaseResponse multiSync (List<Integer> connectionIds) {
+        var connections = connectionRepository.findAllByIdIn(connectionIds);
+        if (connections != null) {
+            CompletableFuture.allOf(
+                    connections
+                            .stream()
+                            .map(this::syncByConnectionFuture)
+                            .toArray(CompletableFuture[]::new)
+            );
+        }
+        return new BaseResponse();
+    }
+
+    public CompletableFuture<Void> syncByConnectionFuture (Connection connection) {
+        return CompletableFuture.runAsync(() -> syncByConnection(connection));
+    }
+
+    public void syncByConnection (Connection connection) {
+        var channelProducts = channelProductRepository.findAllByConnectionId(connection.getId());
+        CompletableFuture.allOf(
+                channelProducts
+                        .stream()
+                        .map(item -> syncFuture(item.getId()))
+                        .toArray(CompletableFuture[]::new)
+        );
+    }
+
+    public CompletableFuture<Void> syncFuture (int id) {
+        return CompletableFuture.runAsync(() -> sync(id));
+    }
+
+    public BaseResponse sync (int id) {
+        BaseResponse baseResponse = new BaseResponse();
+        try {
+            var channelProductOptional = channelProductRepository.findById(id);
+            if (channelProductOptional.isPresent()) {
+                var channelProduct = channelProductOptional.get();
+                var connectionOpt = connectionRepository.findById(channelProduct.getConnectionId());
+                if (connectionOpt.isPresent()) {
+                    var channelVariants = channelVariantRepository.findAllByItemId(channelProduct.getItemId());
+                    if (channelVariants != null) {
+                        UpdateProductPriceRequest updateProductPriceRequest = new UpdateProductPriceRequest();
+                        UpdateProductQuantityRequest updateProductQuantityRequest = new UpdateProductQuantityRequest();
+
+                        List<UpdateProductPriceSkusRequest> priceRequests = new ArrayList<>();
+                        List<UpdateProductQuantitySkusRequest> qtyRequests = new ArrayList<>();
+                        for (ChannelVariant channelVariant : channelVariants) {
+                            if (channelVariant.getMappingId() != 0) {
+                                var variantOpt = variantRepository.findById(channelVariant.getMappingId());
+                                if (variantOpt.isPresent()) {
+                                    UpdateProductPriceSkusRequest updateProductPriceSkusRequest = new UpdateProductPriceSkusRequest();
+                                    updateProductPriceSkusRequest.setId(channelVariant.getVariantId());
+                                    updateProductPriceSkusRequest.setOriginalPrice(variantOpt.get().getRetailPrice().toString());
+                                    priceRequests.add(updateProductPriceSkusRequest);
+
+                                    UpdateProductQuantitySkusRequest updateProductQuantitySkusRequest = new UpdateProductQuantitySkusRequest();
+                                    updateProductQuantitySkusRequest.setId(channelVariant.getVariantId());
+                                    var stockRequest = new UpdateProductQuantityStockInfosRequest();
+                                    stockRequest.setAvailableStock(variantOpt.get().getAvailable());
+                                    stockRequest.setWareHouseId(connectionOpt.get().getWarehouseId());
+                                    updateProductQuantitySkusRequest.setStockInfos(Collections.singletonList(stockRequest));
+                                    qtyRequests.add(updateProductQuantitySkusRequest);
+                                }
+                            }
+                        }
+                        updateProductPriceRequest.setProductId(channelProduct.getItemId());
+                        updateProductQuantityRequest.setProductId(channelProduct.getItemId());
+                        updateProductPriceRequest.setSkus(priceRequests);
+                        updateProductQuantityRequest.setSkus(qtyRequests);
+                        var priceResponse = tikTokApiService.updatePrice(connectionOpt.get().getAccessToken(), connectionOpt.get().getShopId(), updateProductPriceRequest);
+                        var qtyResponse = tikTokApiService.updateQty(connectionOpt.get().getAccessToken(), connectionOpt.get().getShopId(), updateProductQuantityRequest);
+                        String error = null;
+                        if (priceResponse != null) {
+                            if (priceResponse.getData() != null
+                                && (priceResponse.getData().getFailedSKuIds() == null || priceResponse.getData().getFailedSKuIds().isEmpty())
+                            ) {
+                                System.out.println("update price success");
+                            } else {
+                                if (priceResponse.getMessage() != null) {
+                                    error = priceResponse.getMessage();
+                                }
+                            }
+                        }
+                        if (qtyResponse != null) {
+                            if (qtyResponse.getData() != null
+                                    && (qtyResponse.getData().getFailedSkus() == null || qtyResponse.getData().getFailedSkus().isEmpty())
+                            ) {
+                                System.out.println("update quantiry success");
+                            } else {
+                                if (qtyResponse.getMessage() != null) {
+                                    if (error == null) {
+                                        error = qtyResponse.getMessage();
+                                    } else {
+                                        error += qtyResponse.getMessage();
+                                    }
+                                }
+                            }
+                        }
+                        baseResponse.setError(error);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            baseResponse.setError(e.toString());
+        }
+        return baseResponse;
     }
 
 }

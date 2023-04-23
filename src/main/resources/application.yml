@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:mysql://root:lHNqBwd3UhNGgO3LzlXx@containers-us-west-146.railway.app:7438/railway
+    url: mysql://root:eJsIuxHMVjGzjC8wjSGn@containers-us-west-176.railway.app:7538/railway
     username: root
-    password: lHNqBwd3UhNGgO3LzlXx
+    password: eJsIuxHMVjGzjC8wjSGn
 
 feign:
   client:
